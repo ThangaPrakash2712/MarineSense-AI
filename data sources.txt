@@ -1,0 +1,20 @@
+National Oceanic and Atmospheric Administration - sst(Sea surface temperature)
+FAO fish catch data
+IMD weather data
+NASA chlorophyll data
+
+Real full marine dataset would require:
+Satellite SST
+Satellite chlorophyll
+Marine buoy wind data
+Fisheries department landing records
+AIS vessel data
+
+That is:
+Complex
+Multi-source
+Hard to merge
+Research-level work
+
+Chlorophyll concentration indicates plankton availability, which is a primary food source for fish. 
+Hence it strongly influences fish aggregation density.
