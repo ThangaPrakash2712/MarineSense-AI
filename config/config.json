@@ -1,0 +1,96 @@
+{
+  "app_config": {
+    "title": "MarineSense AI",
+    "version": "2.0",
+    "layout": "wide",
+    "theme": "marine"
+  },
+  
+  "model_paths": {
+    "fish_model": "models/fish_prediction_model.pkl",
+    "weather_model": "models/weather_risk_model.pkl"
+  },
+  
+  "data_paths": {
+    "sst_data": "data/processed/sst_indian_ocean.csv",
+    "training_data": "data/processed/final_marine_dataset.csv"
+  },
+  
+  "fishing_zone_thresholds": {
+    "high_potential": 250,
+    "medium_potential": 150,
+    "low_potential": 0
+  },
+  
+  "risk_score_mapping": {
+    "Safe": 20,
+    "Moderate": 60,
+    "Dangerous": 90
+  },
+  
+  "default_values": {
+    "latitude": 10.0,
+    "longitude": 75.0,
+    "year": 2024,
+    "month": 6,
+    "avg_sst": 27.0,
+    "wind_speed": 12.0,
+    "wave_height": 1.5,
+    "salinity": 34.5,
+    "chlorophyll": 0.8
+  },
+  
+  "input_ranges": {
+    "latitude": [-90.0, 90.0],
+    "longitude": [-180.0, 180.0],
+    "year": [2010, 2035],
+    "month": [1, 12],
+    "avg_sst": [20.0, 35.0],
+    "wind_speed": [5.0, 25.0],
+    "wave_height": [0.5, 4.0],
+    "salinity": [33.0, 36.0],
+    "chlorophyll": [0.1, 2.0]
+  },
+  
+  "feature_engineering": {
+    "sst_mean": 27.5,
+    "enable_sst_anomaly": true,
+    "enable_wind_wave_interaction": true,
+    "enable_seasonal_encoding": true
+  },
+  
+  "visualization": {
+    "map_projection": "natural earth",
+    "map_height": 400,
+    "gauge_height": 300,
+    "sst_heatmap_size": [12, 8],
+    "color_scheme": {
+      "safe": "green",
+      "moderate": "orange",
+      "dangerous": "red",
+      "high_zone": "#FF0000",
+      "medium_zone": "#FFD700",
+      "low_zone": "#00FF00"
+    }
+  },
+  
+  "sst_heatmap_region": {
+    "lat_min": 0,
+    "lat_max": 30,
+    "lon_min": 55,
+    "lon_max": 100
+  },
+  
+  "shap_config": {
+    "enable_shap": true,
+    "plot_type": "waterfall",
+    "figure_size": [10, 6]
+  },
+  
+  "future_features": {
+    "sonar_detection": false,
+    "realtime_weather_api": false,
+    "model_retraining": false,
+    "pdf_export": false
+  }
+}
