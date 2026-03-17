@@ -123,3 +123,9 @@ api_keys.txt
 # Large data files (uncomment if needed)
 # data/processed/large_dataset.csv
 # data/raw/satellite_data.nc
+sonar_env/
+runs/
+*.pt
+__pycache__/
+*.pyc
+.env

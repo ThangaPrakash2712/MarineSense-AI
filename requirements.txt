@@ -1,5 +1,5 @@
-# MarineSense AI - Requirements
-# Production-ready dependencies for fish prediction and marine safety system
+# MarineSense AI - Requirements (Real-Time Edition)
+# Production-ready dependencies for real-time marine intelligence
 
 # Core ML & Data Science
 numpy>=1.24.0
@@ -16,6 +16,10 @@ cartopy>=0.21.0
 # Streamlit Web App
 streamlit>=1.28.0
 
+# Real-Time Features (NEW)
+requests>=2.31.0
+streamlit-autorefresh>=0.0.1
+
 # Explainability (Optional but recommended)
 shap>=0.42.0
 
@@ -28,5 +32,4 @@ pillow>=10.0.0
 
 # Optional: For future enhancements
 # opencv-python>=4.8.0  # For sonar image processing
-# requests>=2.31.0  # For API integration
 # python-dotenv>=1.0.0  # For environment variables

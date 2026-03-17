@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import joblib
 import pandas as pd
 import numpy as np
@@ -9,87 +10,70 @@ import cartopy.feature as cfeature
 from pathlib import Path
 from datetime import datetime
 import time
+import sys
 
-st.set_page_config(page_title="MarineSense AI", layout="wide", initial_sidebar_state="expanded")
+# Add app directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
 
-# TASK 1: Premium Theme & Styling
+# Import real-time modules
+from realtime import (
+    fetch_realtime_marine_weather,
+    build_prediction_features,
+    find_best_fishing_zone,
+    calculate_distance,
+    estimate_fuel,
+    generate_marine_advisory
+)
+
+# Import geospatial utilities
+from utils.geo_utils import snap_to_nearest_coast, haversine_km
+
+st.set_page_config(page_title="MarineSense AI - Live", layout="wide", initial_sidebar_state="expanded")
+
+# Premium Theme & Styling
 st.markdown("""
 <style>
-    .main {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        background-attachment: fixed;
-    }
-    .stApp {
-        background: linear-gradient(to bottom, rgba(11,61,145,0.05), rgba(0,168,232,0.05));
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 28px;
-        font-weight: 700;
-        color: #0B3D91;
-    }
-    .premium-card {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 15px;
-        padding: 25px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.3);
-        margin: 15px 0;
-    }
+    .main { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-attachment: fixed; }
+    .stApp { background: linear-gradient(to bottom, rgba(11,61,145,0.05), rgba(0,168,232,0.05)); }
+    div[data-testid="stMetricValue"] { font-size: 28px; font-weight: 700; color: #0B3D91; }
     .kpi-card {
         background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(240,248,255,0.9));
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-        border-top: 4px solid;
-        transition: transform 0.3s, box-shadow 0.3s;
-        margin: 10px 0;
+        backdrop-filter: blur(10px); border-radius: 12px; padding: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08); border-top: 4px solid;
+        transition: transform 0.3s, box-shadow 0.3s; margin: 10px 0;
     }
-    .kpi-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-    }
+    .kpi-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
     .hero-banner {
-        background: linear-gradient(135deg, #0B3D91, #00A8E8);
-        color: white;
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        margin-bottom: 30px;
+        background: linear-gradient(135deg, #0B3D91, #00A8E8); color: white;
+        padding: 30px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); margin-bottom: 30px;
     }
     .status-badge {
-        display: inline-block;
-        padding: 8px 20px;
-        border-radius: 20px;
-        font-weight: bold;
-        animation: pulse 2s infinite;
+        display: inline-block; padding: 8px 20px; border-radius: 20px;
+        font-weight: bold; animation: pulse 2s infinite;
     }
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .live-indicator {
+        display: inline-block; width: 12px; height: 12px; background: #2ECC71;
+        border-radius: 50%; animation: blink 1.5s infinite; margin-right: 8px;
     }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     .insight-box {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 6px 20px rgba(102,126,234,0.4);
-        margin: 20px 0;
+        background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+        padding: 20px; border-radius: 12px; box-shadow: 0 6px 20px rgba(102,126,234,0.4); margin: 20px 0;
     }
     h1, h2, h3 { color: #0B3D91; }
     .stButton>button {
-        background: linear-gradient(135deg, #00A8E8, #0B3D91);
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 10px 25px;
-        font-weight: 600;
-        transition: all 0.3s;
+        background: linear-gradient(135deg, #00A8E8, #0B3D91); color: white;
+        border-radius: 8px; border: none; padding: 10px 25px; font-weight: 600; transition: all 0.3s;
     }
-    .stButton>button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 5px 15px rgba(0,168,232,0.4);
+    .stButton>button:hover { transform: scale(1.05); box-shadow: 0 5px 15px rgba(0,168,232,0.4); }
+    
+    /* Chart container styling */
+    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
+        background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(240,248,255,0.92));
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.12);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -101,8 +85,8 @@ sst_path = BASE_DIR / "data" / "processed" / "sst_indian_ocean.csv"
 
 @st.cache_resource
 def load_models():
+    """Load ML models with caching"""
     with st.spinner("🔄 Loading AI models..."):
-        time.sleep(0.5)
         try:
             fish_model = joblib.load(fish_model_path)
             weather_model = joblib.load(weather_model_path)
@@ -113,6 +97,7 @@ def load_models():
 
 @st.cache_data
 def load_sst():
+    """Load SST data with caching"""
     try:
         return pd.read_csv(sst_path)
     except Exception as e:
@@ -122,26 +107,8 @@ def load_sst():
 fish_model, weather_model = load_models()
 sst_data = load_sst()
 
-def engineer_features(df):
-    df_enhanced = df.copy()
-    if 'avg_sst' in df_enhanced.columns:
-        df_enhanced['sst_anomaly'] = df_enhanced['avg_sst'] - 27.5
-    if 'wind_speed' in df_enhanced.columns and 'wave_height' in df_enhanced.columns:
-        df_enhanced['wind_wave_interaction'] = df_enhanced['wind_speed'] * df_enhanced['wave_height']
-    if 'month' in df_enhanced.columns:
-        df_enhanced['month_sin'] = np.sin(2 * np.pi * df_enhanced['month'] / 12)
-        df_enhanced['month_cos'] = np.cos(2 * np.pi * df_enhanced['month'] / 12)
-    return df_enhanced
-
-def fishing_advisory(risk_label):
-    advisory_map = {
-        "Safe": ("Safe to Go Fishing", "green"),
-        "Moderate": ("Go With Caution", "orange"),
-        "Dangerous": ("Not Safe for Fishing", "red")
-    }
-    return advisory_map.get(risk_label, ("Unknown Risk", "gray"))
-
 def classify_fishing_zone(fish_quantity):
+    """Classify fishing zone by fish quantity"""
     if fish_quantity > 250:
         return "High Potential", "red"
     elif fish_quantity >= 150:
@@ -149,29 +116,65 @@ def classify_fishing_zone(fish_quantity):
     else:
         return "Low Potential", "green"
 
-# TASK 6: Premium Map Upgrade
-def create_premium_hotspot_map(lat, lon, fish_quantity, safety_status):
-    zone_label, zone_color = classify_fishing_zone(fish_quantity)
+def create_route_map(user_lat, user_lon, dest_lat, dest_lon, fish_pred, safety_status, data_source="Manual"):
+    """Create premium route map with coastal-aware routing"""
+    
+    # FIX 1: Snap user location to nearest coast
+    shore_lat, shore_lon = snap_to_nearest_coast(user_lat, user_lon)
+    
+    # Calculate actual distance from shore to fishing zone
+    actual_distance = haversine_km(shore_lat, shore_lon, dest_lat, dest_lon)
+    
+    # Create route line from shore to fishing zone
+    route_lats = [shore_lat, dest_lat]
+    route_lons = [shore_lon, dest_lon]
+    
+    fig = go.Figure()
+    
+    # Route line
+    fig.add_trace(go.Scattergeo(
+        lon=route_lons,
+        lat=route_lats,
+        mode='lines',
+        line=dict(width=3, color='#00A8E8', dash='dash'),
+        name='Sea Route',
+        hoverinfo='skip'
+    ))
+    
+    # Departure point (shore)
+    fig.add_trace(go.Scattergeo(
+        lon=[shore_lon],
+        lat=[shore_lat],
+        mode='markers+text',
+        marker=dict(size=15, color='#0B3D91', symbol='circle', 
+                   line=dict(width=2, color='white')),
+        text=['Departure'],
+        textposition='top center',
+        name='Departure (Shore)',
+        hovertemplate=f"<b>Departure Point (Shore)</b><br>" +
+                     f"Lat: {shore_lat:.2f}<br>Lon: {shore_lon:.2f}<br>" +
+                     f"Distance: {actual_distance:.1f} km<extra></extra>"
+    ))
+    
+    # Fishing zone marker
+    zone_label, zone_color = classify_fishing_zone(fish_pred)
     color_map = {"red": "#E74C3C", "yellow": "#F39C12", "green": "#2ECC71"}
     marker_color = color_map.get(zone_color, "#0000FF")
     
-    fig = go.Figure(data=go.Scattergeo(
-        lon=[lon],
-        lat=[lat],
+    fig.add_trace(go.Scattergeo(
+        lon=[dest_lon],
+        lat=[dest_lat],
         mode='markers+text',
-        marker=dict(
-            size=25,
-            color=marker_color,
-            line=dict(width=3, color='white'),
-            symbol='circle'
-        ),
-        text=[f"{zone_label}"],
-        hovertemplate=f"<b>{zone_label}</b><br>" +
-                      f"Fish: {fish_quantity:.0f}<br>" +
-                      f"Safety: {safety_status}<br>" +
-                      f"Lat: {lat:.2f}, Lon: {lon:.2f}<extra></extra>",
-        textposition="top center",
-        textfont=dict(size=14, color='white', family='Arial Black')
+        marker=dict(size=20, color=marker_color, symbol='star',
+                   line=dict(width=3, color='white')),
+        text=['Fishing Zone'],
+        textposition='top center',
+        name='Fishing Zone',
+        hovertemplate=f"<b>Optimal Fishing Zone</b><br>" +
+                     f"Fish: {fish_pred:.0f}<br>" +
+                     f"Safety: {safety_status}<br>" +
+                     f"Data: {data_source}<br>" +
+                     f"Lat: {dest_lat:.2f}<br>Lon: {dest_lon:.2f}<extra></extra>"
     ))
     
     fig.update_geos(
@@ -183,111 +186,30 @@ def create_premium_hotspot_map(lat, lon, fish_quantity, safety_status):
         oceancolor="#34495E",
         coastlinecolor="#ECF0F1",
         bgcolor="#1C2833",
-        center=dict(lat=lat, lon=lon),
-        projection_scale=3
+        center=dict(lat=(shore_lat+dest_lat)/2, lon=(shore_lon+dest_lon)/2),
+        projection_scale=2.5
     )
     
     fig.update_layout(
-        title=dict(text=f"🎯 Fishing Zone: {zone_label}", x=0.5, xanchor='center', 
-                   font=dict(size=20, color='#0B3D91', family='Arial Black')),
-        height=450,
+        title=dict(text="🗺️ Optimal Fishing Route", x=0.5, xanchor='center',
+                  font=dict(size=20, color='#0B3D91', family='Arial Black')),
+        height=500,
         margin=dict(l=0, r=0, t=50, b=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
+        showlegend=True,
+        legend=dict(x=0.02, y=0.98, bgcolor='rgba(255,255,255,0.8)')
     )
     
     return fig
 
-# TASK 4: Interactive Trend Charts
-def create_trend_charts(sst, wind, wave, chloro, month):
-    months = list(range(max(1, month-5), month+1))
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=months, y=[sst-2, sst-1, sst-0.5, sst, sst+0.5, sst+1][:len(months)],
-                             mode='lines+markers', name='SST Trend', line=dict(color='#E74C3C', width=3),
-                             marker=dict(size=8)))
-    fig.update_layout(title="Sea Surface Temperature Trend", xaxis_title="Month", yaxis_title="SST (°C)",
-                      height=300, template='plotly_white')
-    
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=[wind-2, wind-1, wind, wind+1, wind+2], 
-                              y=[wave-0.3, wave-0.1, wave, wave+0.2, wave+0.4],
-                              mode='markers', marker=dict(size=12, color='#00A8E8'),
-                              name='Wind vs Wave'))
-    fig2.update_layout(title="Wind Speed vs Wave Height", xaxis_title="Wind (m/s)", 
-                       yaxis_title="Wave (m)", height=300, template='plotly_white')
-    
-    fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(x=months, y=[chloro-0.1, chloro, chloro+0.1, chloro+0.2, chloro+0.15, chloro+0.1][:len(months)],
-                              mode='lines+markers', name='Chlorophyll', line=dict(color='#2ECC71', width=3),
-                              marker=dict(size=8)))
-    fig3.update_layout(title="Chlorophyll Concentration Trend", xaxis_title="Month", 
-                       yaxis_title="Chlorophyll (mg/m³)", height=300, template='plotly_white')
-    
-    return fig, fig2, fig3
+# LIVE MONITORING SETUP
+try:
+    from streamlit_autorefresh import st_autorefresh
+    AUTOREFRESH_AVAILABLE = True
+except ImportError:
+    AUTOREFRESH_AVAILABLE = False
+    st.warning("⚠️ Install streamlit-autorefresh for live monitoring: pip install streamlit-autorefresh")
 
-# TASK 5: Risk Breakdown Panel
-def create_risk_breakdown(wind, wave, sst, salinity, chloro):
-    factors = ['Wind Speed', 'Wave Height', 'SST Anomaly', 'Salinity', 'Chlorophyll']
-    risk_values = [
-        min(wind/25 * 100, 100),
-        min(wave/4 * 100, 100),
-        abs(sst - 27.5) * 10,
-        abs(salinity - 34.5) * 20,
-        max(0, (1.5 - chloro) * 50)
-    ]
-    
-    colors = ['#E74C3C' if v > 60 else '#F39C12' if v > 30 else '#2ECC71' for v in risk_values]
-    
-    fig = go.Figure(go.Bar(
-        x=risk_values,
-        y=factors,
-        orientation='h',
-        marker=dict(color=colors),
-        text=[f"{v:.1f}%" for v in risk_values],
-        textposition='outside'
-    ))
-    
-    fig.update_layout(
-        title="🧩 Risk Factor Analysis",
-        xaxis_title="Risk Contribution (%)",
-        height=350,
-        template='plotly_white',
-        showlegend=False
-    )
-    
-    return fig
-
-# TASK 8: Smart Insights Panel
-def generate_ai_insights(fish_pred, risk, sst, wind, wave, chloro, month):
-    insights = []
-    
-    if fish_pred > 250:
-        insights.append("🎯 Excellent fishing conditions detected with high fish aggregation potential.")
-    elif fish_pred > 150:
-        insights.append("📊 Moderate fish population expected in this zone.")
-    else:
-        insights.append("⚠️ Low fish density predicted. Consider alternative locations.")
-    
-    if risk == "Safe":
-        insights.append("✅ Weather conditions are optimal for fishing operations.")
-    elif risk == "Moderate":
-        insights.append("⚡ Proceed with caution. Monitor weather conditions closely.")
-    else:
-        insights.append("🚨 Dangerous conditions. Fishing operations not recommended.")
-    
-    if month in [3, 4, 10, 11]:
-        insights.append("🌊 Current month shows favorable seasonal patterns for fishing.")
-    
-    if chloro > 1.0:
-        insights.append("🌿 High chlorophyll levels indicate rich marine ecosystem.")
-    
-    confidence = min(95, 70 + (chloro * 10) + (5 if 26 < sst < 29 else 0))
-    insights.append(f"🎓 Model Confidence: {confidence:.1f}%")
-    
-    return insights
-
-# TASK 7: Professional Sidebar
+# Sidebar Configuration
 st.sidebar.markdown("""
 <div style='text-align: center; padding: 20px; background: linear-gradient(135deg, #0B3D91, #00A8E8); 
             border-radius: 10px; margin-bottom: 20px;'>
@@ -295,61 +217,169 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-with st.sidebar.expander("📍 Location Settings", expanded=True):
-    latitude = st.number_input("Latitude", -90.0, 90.0, 10.0, 0.1, help="Enter latitude (-90 to 90)")
-    longitude = st.number_input("Longitude", -180.0, 180.0, 75.0, 0.1, help="Enter longitude (-180 to 180)")
+# Real-Time Data Toggle
+use_realtime = st.sidebar.checkbox("🌐 Use Real-Time Ocean Data", value=False,
+                                   help="Fetch live marine weather data from Open-Meteo API")
 
-with st.sidebar.expander("🌊 Ocean Conditions", expanded=True):
+# Live Monitoring Toggle
+if AUTOREFRESH_AVAILABLE:
+    enable_live = st.sidebar.checkbox("📡 Enable Live Monitoring", value=False,
+                                     help="Auto-refresh dashboard with latest data")
+    
+    if enable_live:
+        refresh_interval = st.sidebar.slider("Refresh Interval (minutes)", 1, 30, 5)
+        # Auto-refresh
+        st_autorefresh(interval=refresh_interval * 60 * 1000, key="live_refresh")
+        st.sidebar.success(f"🔄 Auto-refreshing every {refresh_interval} min")
+else:
+    enable_live = False
+
+st.sidebar.markdown("---")
+
+# Location Settings
+with st.sidebar.expander("📍 Location Settings", expanded=True):
+    latitude = st.number_input("Latitude", -90.0, 90.0, 10.0, 0.1)
+    longitude = st.number_input("Longitude", -180.0, 180.0, 75.0, 0.1)
+
+# Ocean Conditions (disabled if real-time mode)
+with st.sidebar.expander("🌊 Ocean Conditions", expanded=not use_realtime):
     year = st.number_input("Year", 2010, 2035, 2024)
     month = st.slider("Month", 1, 12, 6)
-    avg_sst = st.slider("Sea Surface Temperature (°C)", 20.0, 35.0, 27.0, 0.1)
-    wind_speed = st.slider("Wind Speed (m/s)", 5.0, 25.0, 12.0, 0.1)
-    wave_height = st.slider("Wave Height (m)", 0.5, 4.0, 1.5, 0.1)
+    
+    if use_realtime:
+        st.info("📡 Using real-time data. Manual inputs disabled.")
+        avg_sst = 27.0
+        wind_speed = 12.0
+        wave_height = 1.5
+    else:
+        avg_sst = st.slider("Sea Surface Temperature (°C)", 20.0, 35.0, 27.0, 0.1)
+        wind_speed = st.slider("Wind Speed (m/s)", 5.0, 25.0, 12.0, 0.1)
+        wave_height = st.slider("Wave Height (m)", 0.5, 4.0, 1.5, 0.1)
 
+# Advanced Parameters
 with st.sidebar.expander("⚙️ Advanced Parameters", expanded=False):
-    salinity = st.slider("Salinity (PSU)", 33.0, 36.0, 34.5, 0.1)
-    chlorophyll = st.slider("Chlorophyll (mg/m³)", 0.1, 2.0, 0.8, 0.01)
+    if use_realtime:
+        salinity = 34.5
+        chlorophyll = 0.8
+        st.info("Using default values for unavailable parameters")
+    else:
+        salinity = st.slider("Salinity (PSU)", 33.0, 36.0, 34.5, 0.1)
+        chlorophyll = st.slider("Chlorophyll (mg/m³)", 0.1, 2.0, 0.8, 0.01)
+
+# Boat Configuration
+with st.sidebar.expander("⛵ Boat Configuration", expanded=False):
+    boat_speed = st.number_input("Boat Speed (km/h)", 5.0, 50.0, 20.0, 1.0)
+    fuel_efficiency = st.number_input("Fuel Efficiency (L/km)", 0.1, 5.0, 0.8, 0.1)
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Reset to Defaults"):
     st.rerun()
 
-base_input = pd.DataFrame(
-    [[year, month, avg_sst, wind_speed, wave_height, salinity, chlorophyll]],
-    columns=["year", "month", "avg_sst", "wind_speed", "wave_height", "salinity", "chlorophyll"]
+# Fetch Real-Time Data if enabled
+realtime_data = None
+data_source = "Manual"
+
+if use_realtime:
+    with st.spinner("🌐 Fetching real-time marine data..."):
+        realtime_data = fetch_realtime_marine_weather(latitude, longitude, timeout=10)
+        
+        if realtime_data:
+            data_source = "Real-Time"
+            st.sidebar.success("✅ Real-time data loaded")
+            # Update variables with real-time data
+            avg_sst = realtime_data.get("avg_sst", avg_sst)
+            wind_speed = realtime_data.get("wind_speed", wind_speed)
+            wave_height = realtime_data.get("wave_height", wave_height)
+        else:
+            st.sidebar.warning("⚠️ Real-time fetch failed. Using manual inputs.")
+            data_source = "Manual (Fallback)"
+
+# Build prediction features
+manual_inputs = {
+    "year": year, "month": month, "avg_sst": avg_sst,
+    "wind_speed": wind_speed, "wave_height": wave_height,
+    "salinity": salinity, "chlorophyll": chlorophyll
+}
+
+features = build_prediction_features(
+    "realtime" if use_realtime and realtime_data else "manual",
+    manual_inputs,
+    realtime_data
 )
 
-model_input = base_input.copy()
+# Prepare model input
+model_input = pd.DataFrame([{
+    "year": features["year"],
+    "month": features["month"],
+    "avg_sst": features["avg_sst"],
+    "wind_speed": features["wind_speed"],
+    "wave_height": features["wave_height"],
+    "salinity": features["salinity"],
+    "chlorophyll": features["chlorophyll"]
+}])
 
+# Make Predictions
 if fish_model and weather_model:
     try:
         fish_prediction = fish_model.predict(model_input)[0]
         weather_prediction = weather_model.predict(model_input)[0]
-        advisory_text, advisory_color = fishing_advisory(weather_prediction)
+        
         risk_mapping = {"Safe": 20, "Moderate": 60, "Dangerous": 90}
         risk_score = risk_mapping.get(weather_prediction, 50)
+        
     except Exception as e:
         st.error(f"Prediction error: {e}")
         fish_prediction = 0
         weather_prediction = "Unknown"
-        advisory_text = "Error"
-        advisory_color = "gray"
         risk_score = 50
 else:
-    st.error("Models not loaded. Please check model files.")
+    st.error("Models not loaded")
     st.stop()
 
-# TASK 2: Hero Header Section
+# Find Best Fishing Zone with coastal snapping
+@st.cache_data(ttl=600)
+def cached_find_best_zone(lat, lon, features_dict, _model):
+    """Cached zone finding (10 min TTL) - uses coastal point"""
+    # Snap to coast for realistic departure point
+    shore_lat, shore_lon = snap_to_nearest_coast(lat, lon)
+    return find_best_fishing_zone(shore_lat, shore_lon, features_dict, _model)
+
+with st.spinner("🎯 Finding optimal fishing zone..."):
+    best_zone = cached_find_best_zone(latitude, longitude, features, fish_model)
+
+best_lat = best_zone["best_lat"]
+best_lon = best_zone["best_lon"]
+best_fish = best_zone["predicted_fish"]
+
+# Calculate distance from shore to fishing zone
+shore_lat, shore_lon = snap_to_nearest_coast(latitude, longitude)
+distance = calculate_distance(shore_lat, shore_lon, best_lat, best_lon)
+fuel_est = estimate_fuel(distance, fuel_efficiency, boat_speed)
+
+# Generate Advisory
+advisory = generate_marine_advisory(
+    weather_prediction, best_fish, distance,
+    features["wave_height"], features["wind_speed"]
+)
+
+# Hero Header with LIVE indicator
 status_colors = {"Safe": "#2ECC71", "Moderate": "#F39C12", "Dangerous": "#E74C3C"}
 status_color = status_colors.get(weather_prediction, "#95A5A6")
 
+live_badge = ""
+if enable_live and AUTOREFRESH_AVAILABLE:
+    live_badge = "<span class='live-indicator'></span><span style='color: #2ECC71;'>LIVE</span>"
+
+# CHANGE 3: Replace emoji with professional icon
 st.markdown(f"""
 <div class='hero-banner'>
     <div style='display: flex; justify-content: space-between; align-items: center;'>
         <div>
-            <h1 style='margin: 0; color: white; font-size: 42px;'>🌊 MarineSense AI</h1>
-            <p style='margin: 5px 0; font-size: 18px; opacity: 0.9;'>Advanced Marine Intelligence & Prediction System</p>
-            <p style='margin: 5px 0; font-size: 14px; opacity: 0.7;'>Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <h1 style='margin: 0; color: white; font-size: 42px;'>〰️ MarineSense AI {live_badge}</h1>
+            <p style='margin: 5px 0; font-size: 18px; opacity: 0.9;'>Real-Time Marine Intelligence & Decision Platform</p>
+            <p style='margin: 5px 0; font-size: 14px; opacity: 0.7;'>
+                Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Data Source: {data_source}
+            </p>
         </div>
         <div>
             <span class='status-badge' style='background: {status_color}; font-size: 20px;'>
@@ -360,146 +390,275 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# TASK 3: Advanced KPI Cards
-zone_label, _ = classify_fishing_zone(fish_prediction)
-confidence_score = min(95, 70 + (chlorophyll * 10) + (5 if 26 < avg_sst < 29 else 0))
+# KPI Cards
+zone_label, _ = classify_fishing_zone(best_fish)
+confidence_score = best_zone["confidence_score"]
 
 col1, col2, col3, col4 = st.columns(4)
 
+# CHANGE 3: Replace emojis with professional icons in KPI cards
 with col1:
     st.markdown(f"""
     <div class='kpi-card' style='border-top-color: #00A8E8;'>
-        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>🐟 Fish Quantity</div>
-        <div style='font-size: 36px; font-weight: bold; color: #0B3D91;'>{fish_prediction:.0f}</div>
-        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Predicted Index</div>
+        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>◉ Best Zone Fish</div>
+        <div style='font-size: 36px; font-weight: bold; color: #0B3D91;'>{best_fish:.0f}</div>
+        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Predicted Quantity</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
     st.markdown(f"""
     <div class='kpi-card' style='border-top-color: {status_color};'>
-        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>⚠️ Safety Status</div>
+        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>⚠ Safety Status</div>
         <div style='font-size: 36px; font-weight: bold; color: {status_color};'>{weather_prediction}</div>
-        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Current Risk Level</div>
+        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Current Risk</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
-    zone_colors = {"High Potential": "#E74C3C", "Medium Potential": "#F39C12", "Low Potential": "#2ECC71"}
     st.markdown(f"""
-    <div class='kpi-card' style='border-top-color: {zone_colors.get(zone_label, "#95A5A6")};'>
-        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>📍 Zone Potential</div>
-        <div style='font-size: 28px; font-weight: bold; color: {zone_colors.get(zone_label, "#95A5A6")};'>{zone_label}</div>
-        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Fishing Zone Class</div>
+    <div class='kpi-card' style='border-top-color: #F39C12;'>
+        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>◆ Distance</div>
+        <div style='font-size: 36px; font-weight: bold; color: #F39C12;'>{distance:.1f}</div>
+        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Kilometers</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col4:
     st.markdown(f"""
     <div class='kpi-card' style='border-top-color: #2ECC71;'>
-        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>🎯 Confidence</div>
-        <div style='font-size: 36px; font-weight: bold; color: #2ECC71;'>{confidence_score:.1f}%</div>
-        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Model Accuracy</div>
+        <div style='font-size: 16px; color: #7F8C8D; margin-bottom: 10px;'>◎ Confidence</div>
+        <div style='font-size: 36px; font-weight: bold; color: #2ECC71;'>{confidence_score:.0f}%</div>
+        <div style='font-size: 14px; color: #95A5A6; margin-top: 5px;'>Prediction Accuracy</div>
     </div>
     """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# TASK 8: Smart Insights Panel
-insights = generate_ai_insights(fish_prediction, weather_prediction, avg_sst, wind_speed, wave_height, chlorophyll, month)
+# Two-column layout: Marine Advisory | Weather Risk Assessment
+col1, col2 = st.columns([4, 6])
 
-st.markdown("""
-<div class='insight-box'>
-    <h3 style='color: white; margin-top: 0;'>🧠 AI Marine Insights</h3>
-""", unsafe_allow_html=True)
-
-for insight in insights:
-    st.markdown(f"<p style='color: white; margin: 10px 0; font-size: 16px;'>{insight}</p>", unsafe_allow_html=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-# Fishing Advisory
-color_styles = {"green": "#2ECC71", "orange": "#F39C12", "red": "#E74C3C", "gray": "#95A5A6"}
-bg_color = color_styles.get(advisory_color, "#95A5A6")
-
-st.markdown(f"""
-<div style='background: {bg_color}; padding: 25px; border-radius: 15px; text-align: center; 
-            color: white; font-size: 28px; font-weight: bold; margin: 25px 0; 
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);'>
-    🎯 {advisory_text}
-</div>
-""", unsafe_allow_html=True)
-
-# Detailed Predictions
-col1, col2 = st.columns(2)
-
+# COLUMN 1: Marine Advisory (40%)
 with col1:
-    st.markdown("### 📊 Fish Quantity Analysis")
-    st.metric("Predicted Fish Quantity", f"{fish_prediction:.2f}", delta=f"{zone_label}")
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #0B3D91, #00A8E8); color: white;
+                padding: 12px 18px; border-radius: 10px; box-shadow: 0 6px 20px rgba(102,126,234,0.4);'>
+        <h3 style='color: white; margin-top: 0; font-size: 22px;'>Marine Advisory</h3>
+    """, unsafe_allow_html=True)
     
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'><b>Rating:</b> {advisory['overall_rating']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['safety_assessment']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['fishing_opportunity']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['distance_assessment']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'><b>{advisory['recommended_action']}</b></p>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# COLUMN 2: Weather Risk Assessment Section
 with col2:
-    st.markdown("### 🌡️ Weather Risk Gauge")
-    fig_gauge = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=risk_score,
-        title={"text": weather_prediction, "font": {"size": 24, "color": "#0B3D91"}},
-        gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": status_color, "thickness": 0.8},
-            "steps": [
-                {"range": [0, 40], "color": "rgba(46,204,113,0.3)"},
-                {"range": [40, 75], "color": "rgba(243,156,18,0.3)"},
-                {"range": [75, 100], "color": "rgba(231,76,60,0.3)"}
-            ],
-            "threshold": {"line": {"color": "white", "width": 6}, "thickness": 0.9, "value": risk_score}
-        }
-    ))
-    fig_gauge.update_layout(height=300, paper_bgcolor='rgba(0,0,0,0)', font={'color': "#0B3D91"})
-    st.plotly_chart(fig_gauge, use_container_width=True)
+    st.markdown("<h3 style='margin-bottom: 10px;'>Weather Risk Assessment</h3>", unsafe_allow_html=True)
+    
+    # Two columns for gauge and telemetry
+    gauge_col, telemetry_col = st.columns([1, 1])
+    
+    # Container 1: Gauge Chart
+    with gauge_col:
+        with st.container():
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=risk_score,
+                title={"text": weather_prediction, "font": {"size": 16, "color": "#0B3D91"}},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": status_color, "thickness": 0.8},
+                    "steps": [
+                        {"range": [0, 40], "color": "rgba(46,204,113,0.3)"},
+                        {"range": [40, 75], "color": "rgba(243,156,18,0.3)"},
+                        {"range": [75, 100], "color": "rgba(231,76,60,0.3)"}
+                    ],
+                    "threshold": {"line": {"color": "white", "width": 4}, "thickness": 0.8, "value": risk_score}
+                }
+            ))
+            fig_gauge.update_layout(
+                height=250, 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                font={'color': "#0B3D91"},
+                margin=dict(t=60, b=10, l=10, r=10)
+            )
+            st.plotly_chart(fig_gauge, use_container_width=True)
+    
+    # Container 2: Telemetry Panel
+    with telemetry_col:
+        with st.container():
+            # Normalize values for progress bars (0-100%)
+            sst_norm = min(max((features['avg_sst'] - 20) / (35 - 20) * 100, 0), 100)
+            wind_norm = min(max(features['wind_speed'] / 25 * 100, 0), 100)
+            chloro_norm = min(max(features['chlorophyll'] / 2 * 100, 0), 100)
+            
+            # Vertical telemetry panel
+            telemetry_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; }}
+                    .telemetry-panel {{
+                        background: transparent;
+                        border-radius: 12px;
+                        padding: 10px;
+                        box-shadow: none;
+                    }}
+                    .panel-title {{
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #0B3D91;
+                        margin-bottom: 14px;
+                        text-align: center;
+                    }}
+                    .metrics-grid {{
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                    }}
+                    .metric-card {{
+                        text-align: left;
+                    }}
+                    .row-header {{
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 6px;
+                    }}
+                    .metric-icon {{
+                        font-size: 14px;
+                        margin-right: 6px;
+                        display: inline-block;
+                    }}
+                    .metric-label {{
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #5a6c7d;
+                        display: inline-block;
+                    }}
+                    .metric-value {{
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #0B3D91;
+                    }}
+                    .progress-container {{
+                        width: 100%;
+                        height: 8px;
+                        background: rgba(0,0,0,0.08);
+                        border-radius: 8px;
+                        overflow: hidden;
+                        margin-bottom: 4px;
+                    }}
+                    .progress-bar {{
+                        height: 100%;
+                        border-radius: 10px;
+                        transition: width 0.6s ease;
+                    }}
+                    .trend-text {{
+                        font-size: 13px;
+                        color: #6b7280;
+                        font-style: italic;
+                        line-height: 1.3;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="telemetry-panel">
+                    <div class="panel-title">Current Marine Conditions</div>
+                    <div class="metrics-grid">
+                        <!-- SST Metric -->
+                        <div class="metric-card">
+                            <div class="row-header">
+                                <div>
+                                    <span class="metric-icon" style="color: #f59e0b;">🌡️</span>
+                                    <span class="metric-label">Sea Surface Temp</span>
+                                </div>
+                                <div class="metric-value">{features['avg_sst']:.1f}°C</div>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: {sst_norm}%; background: linear-gradient(90deg, #f59e0b, #fb923c);"></div>
+                            </div>
+                            <div class="trend-text">Above 25°C indicates warmer waters</div>
+                        </div>
+                        
+                        <!-- Wind Metric -->
+                        <div class="metric-card">
+                            <div class="row-header">
+                                <div>
+                                    <span class="metric-icon" style="color: #3b82f6;">💨</span>
+                                    <span class="metric-label">Wind Speed</span>
+                                </div>
+                                <div class="metric-value">{features['wind_speed']:.1f} m/s</div>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: {wind_norm}%; background: linear-gradient(90deg, #3b82f6, #38bdf8);"></div>
+                            </div>
+                            <div class="trend-text">Windy with moderate gusts</div>
+                        </div>
+                        
+                        <!-- Chlorophyll Metric -->
+                        <div class="metric-card">
+                            <div class="row-header">
+                                <div>
+                                    <span class="metric-icon" style="color: #10b981;">🍃</span>
+                                    <span class="metric-label">Chlorophyll</span>
+                                </div>
+                                <div class="metric-value">{features['chlorophyll']:.2f} mg/m³</div>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: {chloro_norm}%; background: linear-gradient(90deg, #10b981, #22c55e);"></div>
+                            </div>
+                            <div class="trend-text">Moderate levels present</div>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Render telemetry panel
+            components.html(telemetry_html, height=320, scrolling=False)
 
 st.markdown("---")
 
-# TASK 4: Environmental Trends
-st.markdown("### 📈 Environmental Trends")
-fig1, fig2, fig3 = create_trend_charts(avg_sst, wind_speed, wave_height, chlorophyll, month)
+# CHANGE 3: Replace emojis with professional icons
+st.markdown("### ◆ Optimal Fishing Route")
+route_map = create_route_map(latitude, longitude, best_lat, best_lon, best_fish, weather_prediction, data_source)
+st.plotly_chart(route_map, use_container_width=True)
+
+st.markdown("---")
+
+# CHANGE 3: Replace emojis with professional icons
+st.markdown("### ◇ Trip Planning")
 
 col1, col2, col3 = st.columns(3)
+
 with col1:
-    st.plotly_chart(fig1, use_container_width=True)
+    st.metric("◆ Fuel Required", f"{fuel_est['fuel_liters']:.1f} L",
+             help="Estimated fuel consumption for round trip")
+
 with col2:
-    st.plotly_chart(fig2, use_container_width=True)
+    hours = int(fuel_est['travel_hours'])
+    minutes = int((fuel_est['travel_hours'] - hours) * 60)
+    st.metric("◎ Travel Time", f"{hours}h {minutes}m",
+             help="Estimated one-way travel time")
+
 with col3:
-    st.plotly_chart(fig3, use_container_width=True)
+    st.metric("◆ Total Distance", f"{distance:.1f} km",
+             help="Distance to optimal fishing zone")
 
 st.markdown("---")
 
-# TASK 5: Risk Breakdown
-st.markdown("### 🧩 Risk Factor Analysis")
-risk_fig = create_risk_breakdown(wind_speed, wave_height, avg_sst, salinity, chlorophyll)
-st.plotly_chart(risk_fig, use_container_width=True)
-
-st.markdown("---")
-
-# TASK 6: Premium Hotspot Map
-st.markdown("### 🗺️ Fishing Zone Map")
-hotspot_map = create_premium_hotspot_map(latitude, longitude, fish_prediction, weather_prediction)
-st.plotly_chart(hotspot_map, use_container_width=True)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown("🟢 **Low Potential**: < 150 fish")
-with col2:
-    st.markdown("🟡 **Medium Potential**: 150-250 fish")
-with col3:
-    st.markdown("🔴 **High Potential**: > 250 fish")
-
-st.markdown("---")
-
-# SHAP Explainability
-st.markdown("### 🧠 Model Explainability")
+# CHANGE 3: Replace emojis with professional icons
+st.markdown("### ■ Model Explainability")
 
 with st.expander("View SHAP Analysis (Feature Importance)", expanded=False):
-    st.markdown("SHAP shows how each feature contributes to the prediction.")
+    st.markdown("SHAP shows how each feature contributes to the fish prediction.")
     
     try:
         import shap
@@ -529,8 +688,8 @@ with st.expander("View SHAP Analysis (Feature Importance)", expanded=False):
 
 st.markdown("---")
 
-# SST Heatmap
-st.markdown("### 🌡️ Indian Ocean SST Heatmap")
+# CHANGE 3: Replace emoji with professional icon
+st.markdown("### □ Indian Ocean SST Heatmap")
 
 if not sst_data.empty:
     try:
@@ -568,23 +727,27 @@ if not sst_data.empty:
             
             st.pyplot(fig)
             plt.close()
+        else:
+            st.warning("No SST data available for the selected region.")
     except Exception as e:
         st.error(f"Error rendering SST heatmap: {e}")
+else:
+    st.warning("SST data not loaded.")
 
 st.markdown("---")
 
-# TASK 10: Professional Footer
-st.markdown("""
+# Professional Footer
+st.markdown(f"""
 <div style='background: linear-gradient(135deg, #0B3D91, #00A8E8); color: white; padding: 30px; 
             border-radius: 15px; text-align: center; margin-top: 40px;'>
-    <h3 style='color: white; margin-top: 0;'>MarineSense AI v2.0</h3>
-    <p style='margin: 10px 0;'>Advanced Marine Intelligence & Prediction System</p>
-    <p style='margin: 5px 0; font-size: 14px;'>Data Sources: NOAA, Oceanographic Surveys, Satellite Imagery</p>
+    <h3 style='color: white; margin-top: 0;'>MarineSense AI v3.0 - Real-Time Edition</h3>
+    <p style='margin: 10px 0;'>Advanced Marine Intelligence & Live Monitoring Platform</p>
+    <p style='margin: 5px 0; font-size: 14px;'>Data Sources: Open-Meteo Marine API, NOAA, Satellite Imagery</p>
     <p style='margin: 5px 0; font-size: 14px;'>
-        <span style='color: #2ECC71; font-size: 20px;'>●</span> System Status: Online
+        <span style='color: #2ECC71; font-size: 20px;'>●</span> System Status: {'LIVE' if enable_live else 'Online'}
     </p>
     <p style='margin: 15px 0; font-size: 12px; opacity: 0.8;'>
-        © 2024 MarineSense AI | Research-Grade Marine Intelligence
+        © 2024 MarineSense AI | Real-Time Marine Decision Platform
     </p>
 </div>
 """, unsafe_allow_html=True)
