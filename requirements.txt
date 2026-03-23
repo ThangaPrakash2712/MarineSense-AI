@@ -33,3 +33,8 @@ pillow>=10.0.0
 # Optional: For future enhancements
 # opencv-python>=4.8.0  # For sonar image processing
 # python-dotenv>=1.0.0  # For environment variables
+
+# Sonar Detection Module (NEW)
+# torch>=2.0.0          # Required only if using real YOLOv7 weights
+# ultralytics>=8.0.0    # Required only if using real YOLOv7 weights
+# opencv-python>=4.8.0  # Required only if processing sonar images

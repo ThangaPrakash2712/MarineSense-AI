@@ -124,8 +124,11 @@ api_keys.txt
 # data/processed/large_dataset.csv
 # data/raw/satellite_data.nc
 sonar_env/
-runs/
-*.pt
+marine_env/
 __pycache__/
 *.pyc
+runs/
+*.pt
+*.pth
 .env
+.DS_Store

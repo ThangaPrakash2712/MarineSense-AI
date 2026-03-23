@@ -15,6 +15,19 @@ import sys
 # Add app directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+# ── Page state init ───────────────────────────────────────────────────────────
+if "page" not in st.session_state:
+    st.session_state["page"] = "dashboard"
+
+# Import sonar detection module
+from sonar import (
+    detect_fish_with_model,
+    update_route_decision,
+    fuse_sonar_with_ai,
+    run_detection_loop,
+    summarise_session,
+)
+
 # Import real-time modules
 from realtime import (
     fetch_realtime_marine_weather,
@@ -29,6 +42,125 @@ from realtime import (
 from utils.geo_utils import snap_to_nearest_coast, haversine_km
 
 st.set_page_config(page_title="MarineSense AI - Live", layout="wide", initial_sidebar_state="expanded")
+
+# ── Hide default Streamlit chrome ─────────────────────────────────────────────
+st.markdown("""
+<style>
+    header { visibility: hidden; }
+    .stToolbar { display: none !important; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    .block-container { padding-top: 0rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Top Navigation Bar ────────────────────────────────────────────────────────
+st.markdown("""
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+    /* Push Streamlit content below the fixed navbar */
+    .block-container { padding-top: 80px !important; }
+    section[data-testid="stSidebar"] { top: 56px !important; }
+
+    .topnav {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        z-index: 9999;
+        height: 56px;
+        background: linear-gradient(90deg, #0B3D91 0%, #0d4fa8 60%, #00A8E8 100%);
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+        gap: 4px;
+    }
+    .topnav-brand {
+        color: white;
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: 0.5px;
+        margin-right: 28px;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .topnav-brand i { font-size: 18px; color: #00A8E8; }
+    .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        color: rgba(255,255,255,0.75);
+        font-size: 13.5px;
+        font-weight: 500;
+        text-decoration: none;
+        transition: background 0.2s, color 0.2s;
+        border: none;
+        background: transparent;
+        white-space: nowrap;
+    }
+    .nav-item:first-of-type { margin-left: auto; }
+    .nav-item i { font-size: 15px; }
+    .nav-item:hover {
+        background: rgba(255,255,255,0.15);
+        color: #ffffff;
+    }
+    .nav-item.active {
+        background: rgba(255,255,255,0.2);
+        color: #ffffff;
+        box-shadow: inset 0 -2px 0 #00e5ff;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Render navbar buttons using Streamlit columns (zero-gap trick)
+nav_cols = st.columns([2, 1, 1, 1, 1, 8])
+
+page = st.session_state["page"]
+
+
+# Styled navbar overlay (purely visual, buttons above handle clicks)
+_active = st.session_state["page"]
+st.markdown(f"""
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<div class="topnav">
+    <div class="topnav-brand">
+        <i class="fa-solid fa-water"></i> MarineSense AI
+    </div>
+    <span class="nav-item {'active' if _active == 'dashboard' else ''}">
+        <i class="fa-solid fa-chart-line"></i> Dashboard
+    </span>
+    <span class="nav-item {'active' if _active == 'route' else ''}">
+        <i class="fa-solid fa-route"></i> Route
+    </span>
+    <span class="nav-item {'active' if _active == 'sonar' else ''}">
+        <i class="fa-solid fa-satellite-dish"></i> Sonar
+    </span>
+    <span class="nav-item {'active' if _active == 'profile' else ''}">
+        <i class="fa-solid fa-circle-user"></i> Profile
+    </span>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Hide the raw Streamlit nav buttons (they're replaced by the overlay above) ──
+st.markdown("""
+<style>
+    div[data-testid="column"]:nth-child(2) button,
+    div[data-testid="column"]:nth-child(3) button,
+    div[data-testid="column"]:nth-child(4) button,
+    div[data-testid="column"]:nth-child(5) button {
+        visibility: hidden;
+        height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+    }
+    div[data-testid="column"]:nth-child(1) { visibility: hidden; height: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
 
 # Premium Theme & Styling
 st.markdown("""
@@ -191,12 +323,19 @@ def create_route_map(user_lat, user_lon, dest_lat, dest_lon, fish_pred, safety_s
     )
     
     fig.update_layout(
-        title=dict(text="🗺️ Optimal Fishing Route", x=0.5, xanchor='center',
-                  font=dict(size=20, color='#0B3D91', family='Arial Black')),
-        height=500,
-        margin=dict(l=0, r=0, t=50, b=0),
+        height=400,
+        autosize=True,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=0, r=0, t=0, b=0),
         showlegend=True,
-        legend=dict(x=0.02, y=0.98, bgcolor='rgba(255,255,255,0.8)')
+        legend=dict(
+            x=0.98, y=0.02,
+            xanchor='right', yanchor='bottom',
+            bgcolor='rgba(0,0,0,0.55)',
+            borderwidth=0,
+            font=dict(color='white', size=10)
+        )
     )
     
     return fig
@@ -274,6 +413,17 @@ with st.sidebar.expander("⛵ Boat Configuration", expanded=False):
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Reset to Defaults"):
     st.rerun()
+
+# ── Sonar Sidebar Controls ─────────────────────────────────────────────────
+st.sidebar.markdown("---")
+with st.sidebar.expander("Sonar Detection", expanded=False):
+    sonar_enabled = st.checkbox("Enable Sonar Scanning", value=False,
+                                help="Simulate real-time sonar fish detection")
+    sonar_steps = st.slider("Scan Steps", 5, 30, 10,
+                            help="Number of sonar pings per session")
+    sonar_use_yolo = st.checkbox("Enable YOLO Stub", value=False,
+                                 help="Layer YOLO-style detection on sonar signal")
+    sonar_run = st.button("Run Sonar Scan", disabled=not sonar_enabled)
 
 # Fetch Real-Time Data if enabled
 realtime_data = None
@@ -362,6 +512,107 @@ advisory = generate_marine_advisory(
     features["wave_height"], features["wind_speed"]
 )
 
+# ── Route Page ────────────────────────────────────────────────────────────────
+def show_route_page():
+    st.markdown("## Route & Map Planning")
+    st.markdown("### Optimal Fishing Route")
+    route_map = create_route_map(latitude, longitude, best_lat, best_lon, best_fish, weather_prediction, data_source)
+    st.plotly_chart(route_map, use_container_width=True)
+    st.markdown("### Trip Planning")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Fuel Required", f"{fuel_est['fuel_liters']:.1f} L", help="Estimated fuel for round trip")
+    with col2:
+        _h = int(fuel_est['travel_hours'])
+        _m = int((fuel_est['travel_hours'] - _h) * 60)
+        st.metric("Travel Time", f"{_h}h {_m}m", help="Estimated one-way travel time")
+    with col3:
+        st.metric("Total Distance", f"{distance:.1f} km", help="Distance to optimal fishing zone")
+
+
+# ── Sonar Page ────────────────────────────────────────────────────────────────
+def show_sonar_page():
+    st.markdown("## Sonar Detection Panel")
+    if not sonar_enabled:
+        st.info("Enable Sonar Detection in the sidebar to activate real-time scanning.")
+        return
+    if sonar_run or "sonar_results" not in st.session_state:
+        with st.spinner("Running sonar scan..."):
+            st.session_state.sonar_results = run_detection_loop(
+                num_steps=sonar_steps, base_sst=features["avg_sst"],
+                base_chlorophyll=features["chlorophyll"],
+                zone_confidence=confidence_score, use_yolo=sonar_use_yolo,
+            )
+            st.session_state.sonar_summary = summarise_session(st.session_state.sonar_results)
+    results = st.session_state.sonar_results
+    summary = st.session_state.sonar_summary
+    latest = results[-1]
+    fused_conf, fusion_label = fuse_sonar_with_ai(
+        ai_confidence=confidence_score, sonar_confidence=latest["confidence"],
+        fish_detected=latest["fish_detected"], density_label=latest["density_label"],
+    )
+    route_decision = update_route_decision(
+        detection=latest, current_lat=shore_lat, current_lon=shore_lon,
+        predicted_lat=best_lat, predicted_lon=best_lon, distance_to_target_km=distance,
+    )
+    action_color = {"REROUTE": "#E74C3C", "CONFIRM": "#2ECC71", "CONTINUE": "#F39C12"}.get(route_decision["action"], "#95A5A6")
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#0B3D91,#00A8E8);padding:14px 20px;border-radius:12px;
+                margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;'>
+        <div style='color:white;'><span style='font-size:13px;opacity:0.8;'>SONAR STATUS</span><br>
+        <span style='font-size:18px;font-weight:700;'>Active &mdash; {summary['total_steps']} pings</span></div>
+        <span style='background:{action_color};color:white;padding:6px 14px;border-radius:20px;
+                     font-weight:700;font-size:14px;'>{route_decision['action']}</span>
+    </div>""", unsafe_allow_html=True)
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        st.markdown(f"<div class='kpi-card' style='border-top-color:#00A8E8;'><div style='font-size:13px;color:#7F8C8D;'>Detection Rate</div><div style='font-size:30px;font-weight:bold;color:#0B3D91;'>{summary['detection_rate_pct']:.0f}%</div></div>", unsafe_allow_html=True)
+    with s2:
+        st.markdown(f"<div class='kpi-card' style='border-top-color:#2ECC71;'><div style='font-size:13px;color:#7F8C8D;'>Fused Confidence</div><div style='font-size:30px;font-weight:bold;color:#2ECC71;'>{fused_conf:.0f}%</div><div style='font-size:12px;color:#95A5A6;'>{fusion_label}</div></div>", unsafe_allow_html=True)
+    with s3:
+        st.markdown(f"<div class='kpi-card' style='border-top-color:#E74C3C;'><div style='font-size:13px;color:#7F8C8D;'>Fish Depth</div><div style='font-size:30px;font-weight:bold;color:#E74C3C;'>{latest['depth_m']:.0f} m</div></div>", unsafe_allow_html=True)
+    with s4:
+        st.markdown(f"<div class='kpi-card' style='border-top-color:#F39C12;'><div style='font-size:13px;color:#7F8C8D;'>Est. Fish Count</div><div style='font-size:30px;font-weight:bold;color:#F39C12;'>{summary['peak_count']}</div><div style='font-size:12px;color:#95A5A6;'>{summary['dominant_density']} density</div></div>", unsafe_allow_html=True)
+
+
+# ── Profile Page ──────────────────────────────────────────────────────────────
+def show_profile_page():
+    st.markdown("## User Profile")
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        st.markdown("""
+        <div style='width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg,#0B3D91,#00A8E8);
+                    display:flex;align-items:center;justify-content:center;margin:10px auto;'>
+            <i class='fa-solid fa-circle-user' style='font-size:60px;color:white;'></i>
+        </div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown("### Marine Operator")
+        st.markdown("**Platform:** MarineSense AI v3.0  \n**Role:** Fisheries Intelligence Analyst")
+        st.markdown(f"**Session Started:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    st.markdown("---")
+    st.markdown("### Current Session Parameters")
+    i1, i2 = st.columns(2)
+    with i1:
+        st.info(f"**Location:** {latitude:.2f}°N, {longitude:.2f}°E");
+        st.info(f"**Data Source:** {data_source}")
+    with i2:
+        st.info(f"**Weather Status:** {weather_prediction}")
+        st.info(f"**Best Zone Fish:** {best_fish:.0f} units")
+
+
+# ── Page Router (non-dashboard pages stop here) ───────────────────────────────
+_cur_page = st.session_state["page"]
+if _cur_page == "route":
+    show_route_page()
+    st.stop()
+elif _cur_page == "sonar":
+    show_sonar_page()
+    st.stop()
+elif _cur_page == "profile":
+    show_profile_page()
+    st.stop()
+
+# ── Dashboard content (only reached when page == "dashboard") ─────────────────
 # Hero Header with LIVE indicator
 status_colors = {"Safe": "#2ECC71", "Moderate": "#F39C12", "Dangerous": "#E74C3C"}
 status_color = status_colors.get(weather_prediction, "#95A5A6")
@@ -370,7 +621,6 @@ live_badge = ""
 if enable_live and AUTOREFRESH_AVAILABLE:
     live_badge = "<span class='live-indicator'></span><span style='color: #2ECC71;'>LIVE</span>"
 
-# CHANGE 3: Replace emoji with professional icon
 st.markdown(f"""
 <div class='hero-banner'>
     <div style='display: flex; justify-content: space-between; align-items: center;'>
@@ -443,14 +693,14 @@ with col1:
     st.markdown("""
     <div style='background: linear-gradient(135deg, #0B3D91, #00A8E8); color: white;
                 padding: 12px 18px; border-radius: 10px; box-shadow: 0 6px 20px rgba(102,126,234,0.4);'>
-        <h3 style='color: white; margin-top: 0; font-size: 22px;'>Marine Advisory</h3>
+        <h3 style='color: white; margin-top: 0; font-size: 24px;'>Marine Advisory</h3>
     """, unsafe_allow_html=True)
     
-    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'><b>Rating:</b> {advisory['overall_rating']}</p>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['safety_assessment']}</p>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['fishing_opportunity']}</p>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 17px;'>{advisory['distance_assessment']}</p>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'><b>{advisory['recommended_action']}</b></p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 20px;'><b>Rating:</b> {advisory['overall_rating']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'>{advisory['safety_assessment']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'>{advisory['fishing_opportunity']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 18px;'>{advisory['distance_assessment']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color: black; margin: 8px 0; font-size: 20px;'><b>{advisory['recommended_action']}</b></p>", unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -482,7 +732,7 @@ with col2:
             fig_gauge.update_layout(
                 height=250, 
                 paper_bgcolor='rgba(0,0,0,0)', 
-                font={'color': "#0B3D91"},
+                font={'color': "#0B3D91"},  
                 margin=dict(t=60, b=10, l=10, r=10)
             )
             st.plotly_chart(fig_gauge, use_container_width=True)
@@ -626,67 +876,419 @@ with col2:
 
 st.markdown("---")
 
-# CHANGE 3: Replace emojis with professional icons
-st.markdown("### ◆ Optimal Fishing Route")
-route_map = create_route_map(latitude, longitude, best_lat, best_lon, best_fish, weather_prediction, data_source)
-st.plotly_chart(route_map, use_container_width=True)
+# ── Route + Trip Planning + AI Model (self-contained grid) ──────────────────
+# Render map and SHAP to portable HTML/image strings so the entire
+# grid lives inside ONE components.html call — the only way to guarantee
+# CSS grid placement in Streamlit (st widgets always escape HTML flow).
+
+import io, base64
+
+_h = int(fuel_est['travel_hours'])
+_m = int((fuel_est['travel_hours'] - _h) * 60)
+
+# 1. Map → Plotly full HTML string (self-contained, no external CDN needed)
+route_map = create_route_map(
+    latitude, longitude, best_lat, best_lon,
+    best_fish, weather_prediction, data_source
+)
+map_html = route_map.to_html(full_html=False, include_plotlyjs='cdn')
+
+# 2. SHAP / AI panel → PNG base64 embedded image
+ai_panel_html = ""
+try:
+    import shap
+
+    @st.cache_data
+    def compute_shap(_model, input_data):
+        explainer = shap.TreeExplainer(_model)
+        return explainer, explainer.shap_values(input_data)
+
+    explainer, shap_values = compute_shap(fish_model, model_input)
+    fig_shap, _ = plt.subplots(figsize=(5, 8))
+    shap.waterfall_plot(
+        shap.Explanation(
+            values=shap_values[0],
+            base_values=explainer.expected_value,
+            data=model_input.iloc[0].values,
+            feature_names=model_input.columns.tolist()
+        ),
+        show=False
+    )
+    buf = io.BytesIO()
+    fig_shap.savefig(buf, format='png', bbox_inches='tight', dpi=120)
+    plt.close(fig_shap)
+    buf.seek(0)
+    shap_b64 = base64.b64encode(buf.read()).decode()
+    ai_panel_html = f"<img src='data:image/png;base64,{shap_b64}' style='width:100%;height:auto;display:block;' />"
+except Exception:
+    ai_panel_html = "<p style='color:#7F8C8D;font-size:13px;padding:12px;'>Loading model insights...</p>"
+
+# 3. Build the complete self-contained grid HTML
+grid_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; }}
+
+  /* ── MAIN GRID ── */
+  .dashboard {{
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 20px;
+    width: 100%;
+  }}
+
+  /* ── SECTION HEADINGS ── */
+  .section-heading {{
+    font-size: 15px;
+    font-weight: 600;
+    color: #0B3D91;
+    margin-bottom: 12px;
+    margin-top: 0;
+    letter-spacing: 0.2px;
+  }}
+
+  /* ── MAP WRAPPER: grid-column 1, grid-row 1 ── */
+  .map-wrapper {{
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+  }}
+  .map-container {{
+    width: 100%;
+    height: 420px;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #1C2833;
+  }}
+  .map-container iframe {{
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+  }}
+
+  /* ── CARDS WRAPPER: grid-column 1, grid-row 2 ── */
+  .cards-wrapper {{
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+  }}
+  .cards {{
+    display: flex;
+    gap: 20px;
+  }}
+  .card {{
+    flex: 1;
+    padding: 18px 20px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #0B3D91, #00A8E8);
+    color: white;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }}
+  .card-icon {{
+    font-size: 24px;
+    opacity: 0.95;
+    flex-shrink: 0;
+  }}
+  .card-content {{
+    text-align: left;
+  }}
+  .card .c-label {{
+    font-size: 11px;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 5px;
+  }}
+  .card .c-value {{
+    font-size: 22px;
+    font-weight: 700;
+  }}
+
+  /* ── AI PANEL WRAPPER: grid-column 2, grid-row 1 / span 2 ── */
+  .ai-wrapper {{
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+  }}
+  .ai-panel {{
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }}
+  .ai-panel-inner {{
+    flex: 1;
+    overflow-y: auto;
+  }}
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {{
+    .dashboard {{ grid-template-columns: 1fr; }}
+    .map-wrapper   {{ grid-column: 1; grid-row: 1; }}
+    .cards-wrapper {{ grid-column: 1; grid-row: 2; }}
+    .ai-wrapper    {{ grid-column: 1; grid-row: 3; }}
+    .cards {{ flex-direction: column; }}
+  }}
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+  <!-- MAP: col 1, row 1 -->
+  <div class="map-wrapper">
+    <div class="section-heading">Optimal Fishing Zone</div>
+    <div class="map-container">
+      {map_html}
+    </div>
+  </div>
+
+  <!-- CARDS: col 1, row 2 -->
+  <div class="cards-wrapper">
+    <div class="section-heading">Trip Planning</div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon"><i class="fa-solid fa-gas-pump"></i></div>
+        <div class="card-content">
+          <div class="c-label">Fuel Required</div>
+          <div class="c-value">{fuel_est['fuel_liters']:.1f} L</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-icon"><i class="fa-solid fa-clock"></i></div>
+        <div class="card-content">
+          <div class="c-label">Travel Time</div>
+          <div class="c-value">{_h}h {_m}m</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-icon"><i class="fa-solid fa-route"></i></div>
+        <div class="card-content">
+          <div class="c-label">Total Distance</div>
+          <div class="c-value">{distance:.1f} km</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI PANEL: col 2, row 1 / span 2 -->
+  <div class="ai-wrapper">
+    <div class="section-heading">AI Model (Explainability)</div>
+    <div class="ai-panel">
+      <div class="ai-panel-inner">
+        {ai_panel_html}
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
+"""
+
+components.html(grid_html, height=700, scrolling=False)
 
 st.markdown("---")
 
-# CHANGE 3: Replace emojis with professional icons
-st.markdown("### ◇ Trip Planning")
+# ── Sonar Detection Panel ────────────────────────────────────────────────────
+st.markdown("### ◈ Sonar Fish Detection")
 
-col1, col2, col3 = st.columns(3)
+if not sonar_enabled:
+    st.info("Enable Sonar Detection in the sidebar to activate real-time scanning.")
+else:
+    if sonar_run or "sonar_results" not in st.session_state:
+        with st.spinner("Running sonar scan..."):
+            st.session_state.sonar_results = run_detection_loop(
+                num_steps=sonar_steps,
+                base_sst=features["avg_sst"],
+                base_chlorophyll=features["chlorophyll"],
+                zone_confidence=confidence_score,
+                use_yolo=sonar_use_yolo,
+            )
+            st.session_state.sonar_summary = summarise_session(st.session_state.sonar_results)
 
-with col1:
-    st.metric("◆ Fuel Required", f"{fuel_est['fuel_liters']:.1f} L",
-             help="Estimated fuel consumption for round trip")
+    results = st.session_state.sonar_results
+    summary = st.session_state.sonar_summary
+    latest = results[-1]
 
-with col2:
-    hours = int(fuel_est['travel_hours'])
-    minutes = int((fuel_est['travel_hours'] - hours) * 60)
-    st.metric("◎ Travel Time", f"{hours}h {minutes}m",
-             help="Estimated one-way travel time")
+    fused_conf, fusion_label = fuse_sonar_with_ai(
+        ai_confidence=confidence_score,
+        sonar_confidence=latest["confidence"],
+        fish_detected=latest["fish_detected"],
+        density_label=latest["density_label"],
+    )
 
-with col3:
-    st.metric("◆ Total Distance", f"{distance:.1f} km",
-             help="Distance to optimal fishing zone")
+    route_decision = update_route_decision(
+        detection=latest,
+        current_lat=shore_lat,
+        current_lon=shore_lon,
+        predicted_lat=best_lat,
+        predicted_lon=best_lon,
+        distance_to_target_km=distance,
+    )
 
-st.markdown("---")
+    action_colors = {"REROUTE": "#E74C3C", "CONFIRM": "#2ECC71", "CONTINUE": "#F39C12"}
+    action_color = action_colors.get(route_decision["action"], "#95A5A6")
 
-# CHANGE 3: Replace emojis with professional icons
-st.markdown("### ■ Model Explainability")
+    st.markdown(f"""
+    <div style='background: linear-gradient(135deg, #0B3D91, #00A8E8); padding: 14px 20px;
+                border-radius: 12px; margin-bottom: 16px; display: flex;
+                justify-content: space-between; align-items: center;'>
+        <div style='color: white;'>
+            <span style='font-size: 13px; opacity: 0.8;'>SONAR STATUS</span><br>
+            <span style='font-size: 18px; font-weight: 700;'>Active &mdash; {summary['total_steps']} pings</span>
+        </div>
+        <div style='text-align: right;'>
+            <span style='background: {action_color}; color: white; padding: 6px 14px;
+                         border-radius: 20px; font-weight: 700; font-size: 14px;'>
+                {route_decision['action']}
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-with st.expander("View SHAP Analysis (Feature Importance)", expanded=False):
-    st.markdown("SHAP shows how each feature contributes to the fish prediction.")
-    
-    try:
-        import shap
-        
-        @st.cache_data
-        def compute_shap(_model, input_data):
-            explainer = shap.TreeExplainer(_model)
-            shap_values = explainer.shap_values(input_data)
-            return explainer, shap_values
-        
-        explainer, shap_values = compute_shap(fish_model, model_input)
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        shap.waterfall_plot(
-            shap.Explanation(
-                values=shap_values[0],
-                base_values=explainer.expected_value,
-                data=model_input.iloc[0].values,
-                feature_names=model_input.columns.tolist()
-            ),
-            show=False
+    alert_bg = "#fef9e7" if latest["fish_detected"] else "#f8f9fa"
+    alert_border = "#F39C12" if latest["fish_detected"] else "#BDC3C7"
+    st.markdown(f"""
+    <div style='background: {alert_bg}; border-left: 4px solid {alert_border};
+                padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;
+                font-size: 14px; color: #2C3E50;'>
+        <b>Latest Alert:</b> {latest['alert']}<br>
+        <span style='font-size: 12px; color: #7F8C8D; margin-top: 4px; display: block;'>
+            {route_decision['reason']}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+    with s_col1:
+        st.markdown(f"""
+        <div class='kpi-card' style='border-top-color: #00A8E8;'>
+            <div style='font-size: 13px; color: #7F8C8D;'>Detection Rate</div>
+            <div style='font-size: 30px; font-weight: bold; color: #0B3D91;'>{summary['detection_rate_pct']:.0f}%</div>
+            <div style='font-size: 12px; color: #95A5A6;'>of {summary['total_steps']} pings</div>
+        </div>""", unsafe_allow_html=True)
+    with s_col2:
+        st.markdown(f"""
+        <div class='kpi-card' style='border-top-color: #2ECC71;'>
+            <div style='font-size: 13px; color: #7F8C8D;'>Fused Confidence</div>
+            <div style='font-size: 30px; font-weight: bold; color: #2ECC71;'>{fused_conf:.0f}%</div>
+            <div style='font-size: 12px; color: #95A5A6;'>{fusion_label}</div>
+        </div>""", unsafe_allow_html=True)
+    with s_col3:
+        st.markdown(f"""
+        <div class='kpi-card' style='border-top-color: #E74C3C;'>
+            <div style='font-size: 13px; color: #7F8C8D;'>Fish Depth</div>
+            <div style='font-size: 30px; font-weight: bold; color: #E74C3C;'>{latest['depth_m']:.0f} m</div>
+            <div style='font-size: 12px; color: #95A5A6;'>Latest ping</div>
+        </div>""", unsafe_allow_html=True)
+    with s_col4:
+        st.markdown(f"""
+        <div class='kpi-card' style='border-top-color: #F39C12;'>
+            <div style='font-size: 13px; color: #7F8C8D;'>Est. Fish Count</div>
+            <div style='font-size: 30px; font-weight: bold; color: #F39C12;'>{summary['peak_count']}</div>
+            <div style='font-size: 12px; color: #95A5A6;'>{summary['dominant_density']} density</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    chart_col1, chart_col2 = st.columns([3, 2])
+
+    with chart_col1:
+        steps = [r["step"] for r in results]
+        confs = [r["confidence"] for r in results]
+        echoes = [r["echo_intensity"] * 100 for r in results]
+        depths = [r["depth_m"] for r in results]
+
+        fig_sonar = go.Figure()
+        fig_sonar.add_trace(go.Scatter(
+            x=steps, y=confs, name="Confidence %",
+            line=dict(color="#2ECC71", width=2),
+            fill="tozeroy", fillcolor="rgba(46,204,113,0.1)"
+        ))
+        fig_sonar.add_trace(go.Scatter(
+            x=steps, y=echoes, name="Echo Intensity %",
+            line=dict(color="#00A8E8", width=2, dash="dot")
+        ))
+        fig_sonar.add_hline(
+            y=28, line_dash="dash", line_color="#E74C3C",
+            annotation_text="Detection threshold",
+            annotation_position="bottom right"
         )
-        st.pyplot(fig)
-        plt.close()
-    except:
-        st.info("SHAP explainability not available. Install shap library for model insights.")
+        fig_sonar.update_layout(
+            title="Sonar Signal — Confidence & Echo",
+            height=260, margin=dict(t=40, b=30, l=40, r=20),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(248,249,250,0.8)",
+            legend=dict(orientation="h", y=1.12),
+            yaxis=dict(range=[0, 105], title="%"),
+            xaxis=dict(title="Scan Step"),
+        )
+        st.plotly_chart(fig_sonar, use_container_width=True)
 
-st.markdown("---")
+    with chart_col2:
+        dist = summary["density_distribution"]
+        labels = [k for k, v in dist.items() if v > 0]
+        values = [v for v in dist.values() if v > 0]
+        donut_colors = {
+            "High": "#E74C3C", "Medium": "#F39C12",
+            "Low": "#3498DB", "None": "#BDC3C7"
+        }
+        fig_donut = go.Figure(go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.55,
+            marker_colors=[donut_colors.get(l, "#95A5A6") for l in labels],
+            textinfo="label+percent",
+            textfont_size=11,
+        ))
+        fig_donut.update_layout(
+            title="Density Distribution",
+            height=260, margin=dict(t=40, b=10, l=10, r=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            showlegend=False,
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+    with st.expander("Fish Depth Heatmap", expanded=False):
+        fig_heat = go.Figure(go.Heatmap(
+            z=[depths],
+            x=steps,
+            y=["Depth (m)"],
+            colorscale=[
+                [0.0, "#EBF5FB"], [0.3, "#3498DB"],
+                [0.6, "#1A5276"], [1.0, "#0B3D91"]
+            ],
+            text=[[f"{d:.0f} m" for d in depths]],
+            texttemplate="%{text}",
+            showscale=True,
+            colorbar=dict(title="Depth m", thickness=12),
+        ))
+        fig_heat.update_layout(
+            title="Fish Detection Depth per Scan Step",
+            height=160, margin=dict(t=40, b=30, l=60, r=20),
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+# ── End Sonar Panel ───────────────────────────────────────────────────────────
+
 
 # CHANGE 3: Replace emoji with professional icon
 st.markdown("### □ Indian Ocean SST Heatmap")
